@@ -6,7 +6,6 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Fonction pour rechercher dans les sources prioritaires
 async function searchSources(query, domains) {
   const results = [];
 
@@ -25,7 +24,6 @@ async function searchSources(query, domains) {
       console.error(`Erreur recherche sur ${domain}:`, err.message);
     }
   }
-
   return results;
 }
 
@@ -39,11 +37,9 @@ export default async function handler(req, res) {
   const query = `${school} ${program} coût salaire employabilité`;
   const domains = sourcesConfig.sources.flatMap(src => src.domains);
 
-  // 1. Recherche ciblée
   const results = await searchSources(query, domains);
 
   if (results.length > 0) {
-    // 2. Passer les résultats à l’IA pour normalisation
     const prompt = `
     Voici des extraits trouvés sur des sources fiables :
     ${JSON.stringify(results, null, 2)}
@@ -54,37 +50,24 @@ export default async function handler(req, res) {
     - employabilityRate
     - source
     `;
-
     try {
       const completion = await client.chat.completions.create({
         model: "gpt-4.1-mini",
         messages: [{ role: "user", content: prompt }],
       });
-
       const raw = completion.choices[0].message.content;
       let data;
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        data = {
-          cost: null,
-          averageSalary: null,
-          employabilityRate: null,
-          source: "Réponse IA non parsée"
-        };
+      try { data = JSON.parse(raw); }
+      catch {
+        data = { cost: null, averageSalary: null, employabilityRate: null, source: "Réponse IA non parsée" };
       }
-
-      return res.json({
-        ...data,
-        refreshedAt: new Date().toISOString(),
-      });
+      return res.json({ ...data, refreshedAt: new Date().toISOString() });
     } catch (error) {
       console.error(error);
       return res.status(500).json({ error: "Erreur IA" });
     }
   }
 
-  // 3. Fallback IA si aucune donnée trouvée
   try {
     const prompt = `
     Donne-moi les statistiques suivantes pour l'école "${school}" et le programme "${program}" :
@@ -93,29 +76,17 @@ export default async function handler(req, res) {
     - Taux d'employabilité à la sortie (en %)
     Réponds uniquement en JSON avec les clés : cost, averageSalary, employabilityRate, source.
     `;
-
     const completion = await client.chat.completions.create({
       model: "gpt-4.1-mini",
       messages: [{ role: "user", content: prompt }],
     });
-
     const raw = completion.choices[0].message.content;
     let data;
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      data = {
-        cost: null,
-        averageSalary: null,
-        employabilityRate: null,
-        source: "Réponse IA non parsée"
-      };
+    try { data = JSON.parse(raw); }
+    catch {
+      data = { cost: null, averageSalary: null, employabilityRate: null, source: "Réponse IA non parsée" };
     }
-
-    return res.json({
-      ...data,
-      refreshedAt: new Date().toISOString(),
-    });
+    return res.json({ ...data, refreshedAt: new Date().toISOString() });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: "Erreur IA fallback" });
