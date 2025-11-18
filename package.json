@@ -1,0 +1,12 @@
+{
+  "name": "edu-stats-app",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vercel dev",
+    "start": "vercel start"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "openai": "^4.0.0"
+  }
+}
