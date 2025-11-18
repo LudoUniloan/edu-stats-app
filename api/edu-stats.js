@@ -1,6 +1,11 @@
 import OpenAI from "openai";
-import sourcesConfig from "../sources.json" assert { type: "json" };
+import fs from "fs";
+import path from "path";
 import fetch from "node-fetch";
+
+// 🔹 sources.json est à la racine du repo
+const sourcesPath = path.join(process.cwd(), "sources.json");
+const sourcesConfig = JSON.parse(fs.readFileSync(sourcesPath, "utf8"));
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -10,14 +15,16 @@ async function searchSources(query, domains) {
   const results = [];
 
   for (const domain of domains) {
-    const url = `https://api.duckduckgo.com/?q=site:${domain}+${encodeURIComponent(query)}&format=json`;
+    const url = `https://api.duckduckgo.com/?q=site:${domain}+${encodeURIComponent(
+      query
+    )}&format=json`;
     try {
       const resp = await fetch(url);
       const data = await resp.json();
       if (data?.RelatedTopics?.length > 0) {
         results.push({
           domain,
-          snippet: data.RelatedTopics[0].Text || "Pas de données précises"
+          snippet: data.RelatedTopics[0].Text || "Pas de données précises",
         });
       }
     } catch (err) {
@@ -35,7 +42,7 @@ export default async function handler(req, res) {
   }
 
   const query = `${school} ${program} coût salaire employabilité`;
-  const domains = sourcesConfig.sources.flatMap(src => src.domains);
+  const domains = sourcesConfig.sources.flatMap((src) => src.domains);
 
   const results = await searchSources(query, domains);
 
@@ -57,9 +64,15 @@ export default async function handler(req, res) {
       });
       const raw = completion.choices[0].message.content;
       let data;
-      try { data = JSON.parse(raw); }
-      catch {
-        data = { cost: null, averageSalary: null, employabilityRate: null, source: "Réponse IA non parsée" };
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = {
+          cost: null,
+          averageSalary: null,
+          employabilityRate: null,
+          source: "Réponse IA non parsée",
+        };
       }
       return res.json({ ...data, refreshedAt: new Date().toISOString() });
     } catch (error) {
@@ -82,9 +95,15 @@ export default async function handler(req, res) {
     });
     const raw = completion.choices[0].message.content;
     let data;
-    try { data = JSON.parse(raw); }
-    catch {
-      data = { cost: null, averageSalary: null, employabilityRate: null, source: "Réponse IA non parsée" };
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = {
+        cost: null,
+        averageSalary: null,
+        employabilityRate: null,
+        source: "Réponse IA non parsée",
+      };
     }
     return res.json({ ...data, refreshedAt: new Date().toISOString() });
   } catch (error) {
