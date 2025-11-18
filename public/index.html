@@ -3,36 +3,115 @@
 <head>
   <meta charset="UTF-8" />
   <title>Statistiques d’insertion et coût des formations</title>
+
+  <!-- Optionnel : jolie police Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+
   <link rel="stylesheet" href="style.css" />
   <script src="script.js" defer></script>
 </head>
 <body>
-  <h1>Statistiques d’insertion et coût des formations</h1>
+  <div class="app">
+    <div class="shell">
+      <div class="card">
+        <!-- Colonne gauche : texte explicatif -->
+        <div class="card-left">
+          <div class="badge">SIMULATEUR</div>
+          <h1>Estimez rapidement l’employabilité de votre formation.</h1>
+          <p class="subtitle">
+            Indiquez le nom d’une école et d’un programme et obtenez un ordre de
+            grandeur du coût de la formation, du salaire moyen à la sortie et du
+            taux d’employabilité.
+          </p>
+          <p class="hint">
+            Exemple d’estimation non contractuelle, fournie à titre indicatif
+            à partir de données publiques et de modèles d’IA. Vérifiez toujours
+            les informations sur les sites officiels des écoles.
+          </p>
+        </div>
 
-  <form id="stats-form">
-    <input
-      id="school-input"
-      placeholder="Nom de l'école"
-      value="HEC Paris"
-      required
-    />
-    <input
-      id="program-input"
-      placeholder="Nom du programme"
-      value="Master in Management"
-      required
-    />
-    <button type="submit">Obtenir les statistiques</button>
-  </form>
+        <!-- Colonne droite : formulaire + résultats -->
+        <div class="card-right">
+          <div class="step-header">
+            <div class="step-label">ÉTAPE 1/1</div>
+            <div class="step-title">Vos paramètres</div>
+            <div class="step-progress">
+              <div class="step-progress-fill"></div>
+            </div>
+          </div>
 
-  <!-- Nouveau : info claire sur l'école + programme utilisés -->
-  <h2 id="program-info"></h2>
+          <form id="stats-form" class="form">
+            <div class="form-group">
+              <label for="school-input">École</label>
+              <input
+                id="school-input"
+                type="text"
+                placeholder="Ex : HEC Paris"
+                value="HEC Paris"
+                required
+              />
+            </div>
 
-  <p id="status"></p>
+            <div class="form-group">
+              <label for="program-input">Programme</label>
+              <input
+                id="program-input"
+                type="text"
+                placeholder="Ex : Master in Management"
+                value="Master in Management"
+                required
+              />
+            </div>
 
-  <p>Coût : <span id="cost">—</span></p>
-  <p>Salaire moyen : <span id="average-salary">—</span></p>
-  <p>Employabilité : <span id="employability-rate">—</span></p>
-  <p>Source : <span id="source">—</span></p>
+            <button type="submit" class="primary-button">
+              Voir mes statistiques
+            </button>
+          </form>
+
+          <p id="status" class="status"></p>
+
+          <div id="program-info" class="program-info"></div>
+
+          <div class="results">
+            <div class="result-item">
+              <div class="result-label">Coût estimé</div>
+              <div class="result-value" id="cost">—</div>
+              <div class="result-helper">Frais de scolarité pour le programme</div>
+            </div>
+
+            <div class="result-item">
+              <div class="result-label">Salaire moyen à la sortie</div>
+              <div class="result-value" id="average-salary">—</div>
+              <div class="result-helper">Brut annuel estimé</div>
+            </div>
+
+            <div class="result-item">
+              <div class="result-label">Employabilité</div>
+              <div class="result-value" id="employability-rate">—</div>
+              <div class="result-helper">
+                Part des diplômés en emploi quelques mois après la sortie
+              </div>
+            </div>
+
+            <div class="result-item result-item-full">
+              <div class="result-label">Source</div>
+              <div class="result-source" id="source">—</div>
+            </div>
+          </div>
+
+          <p class="disclaimer">
+            Les résultats sont générés automatiquement et peuvent comporter des
+            approximations. Merci de vérifier auprès de l’école avant de prendre
+            une décision.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
