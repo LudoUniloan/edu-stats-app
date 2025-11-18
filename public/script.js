@@ -7,6 +7,7 @@ const costEl = document.getElementById("cost");
 const avgSalaryEl = document.getElementById("average-salary");
 const employabilityEl = document.getElementById("employability-rate");
 const sourceEl = document.getElementById("source");
+const programInfoEl = document.getElementById("program-info");
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -20,6 +21,7 @@ form.addEventListener("submit", async (e) => {
   }
 
   statusEl.textContent = "Chargement...";
+  programInfoEl.textContent = "";
   costEl.textContent = "—";
   avgSalaryEl.textContent = "—";
   employabilityEl.textContent = "—";
@@ -39,6 +41,13 @@ form.addEventListener("submit", async (e) => {
 
     const data = await res.json();
     console.log("Réponse API :", data);
+
+    // 👉 Afficher le couple école + programme utilisé pour les stats
+    if (data.schoolQueried && data.programQueried) {
+      programInfoEl.textContent = `Statistiques pour : ${data.schoolQueried} – ${data.programQueried}`;
+    } else {
+      programInfoEl.textContent = "";
+    }
 
     costEl.textContent =
       data.cost != null ? `${data.cost} €` : "Non disponible";
