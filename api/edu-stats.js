@@ -1,9 +1,8 @@
 // api/edu-stats.js
 
-import OpenAI from "openai";
-import fs from "fs";
-import path from "path";
-import fetch from "node-fetch";
+const OpenAI = require("openai");
+const fs = require("fs");
+const path = require("path");
 
 // ---------- Chargement de sources.json ----------
 
@@ -42,6 +41,7 @@ async function searchSources(query, domains) {
     )}&format=json`;
 
     try {
+      // fetch est global en Node 18+/Vercel
       const resp = await fetch(url);
       const data = await resp.json();
       if (data?.RelatedTopics?.length > 0) {
@@ -60,9 +60,9 @@ async function searchSources(query, domains) {
 
 // ---------- Handler Serverless ----------
 
-export default async function handler(req, res) {
+module.exports = async (req, res) => {
   try {
-    const { school, program } = req.query;
+    const { school, program } = req.query || {};
 
     if (!school || !program) {
       return res.status(400).json({ error: "Paramètres manquants" });
@@ -100,11 +100,11 @@ Réponds STRICTEMENT avec un objet JSON UNIQUEMENT, sans texte autour.
       try {
         const completion = await client.chat.completions.create({
           model: "gpt-4.1-mini",
-          response_format: { type: "json_object" }, // 🔴 force une réponse JSON
+          response_format: { type: "json_object" },
           messages: [{ role: "user", content: prompt }],
         });
 
-        const raw = completion.choices[0].message.content?.trim() ?? "{}";
+        const raw = (completion.choices[0].message.content || "{}").trim();
         let data;
         try {
           data = JSON.parse(raw);
@@ -147,11 +147,11 @@ Aucun texte en dehors du JSON.
 
       const completion = await client.chat.completions.create({
         model: "gpt-4.1-mini",
-        response_format: { type: "json_object" }, // 🔴 force une réponse JSON
+        response_format: { type: "json_object" },
         messages: [{ role: "user", content: prompt }],
       });
 
-      const raw = completion.choices[0].message.content?.trim() ?? "{}";
+      const raw = (completion.choices[0].message.content || "{}").trim();
       let data;
       try {
         data = JSON.parse(raw);
@@ -171,8 +171,7 @@ Aucun texte en dehors du JSON.
       return res.status(500).json({ error: "Erreur IA fallback" });
     }
   } catch (err) {
-    // Erreur non prévue
     console.error("Erreur inattendue dans handler /api/edu-stats :", err);
     return res.status(500).json({ error: "Erreur serveur inattendue" });
   }
-}
+};
