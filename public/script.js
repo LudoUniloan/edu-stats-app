@@ -1,7 +1,60 @@
-body { font-family: Arial, sans-serif; background: #f9fafb; color: #111; padding: 20px; }
-h1 { margin-bottom: 16px; }
-form { display: flex; gap: 10px; margin-bottom: 20px; }
-input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 6px; }
-button { padding: 10px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; }
-button:hover { background: #1e40af; }
-#results { margin-top: 20px; background: #fff; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+const form = document.getElementById("stats-form");
+const schoolInput = document.getElementById("school-input");
+const programInput = document.getElementById("program-input");
+
+const statusEl = document.getElementById("status");
+const costEl = document.getElementById("cost");
+const avgSalaryEl = document.getElementById("average-salary");
+const employabilityEl = document.getElementById("employability-rate");
+const sourceEl = document.getElementById("source");
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const school = schoolInput.value.trim();
+  const program = programInput.value.trim();
+
+  if (!school || !program) {
+    statusEl.textContent = "Merci de renseigner l'école et le programme.";
+    return;
+  }
+
+  statusEl.textContent = "Chargement...";
+  costEl.textContent = "—";
+  avgSalaryEl.textContent = "—";
+  employabilityEl.textContent = "—";
+  sourceEl.textContent = "—";
+
+  try {
+    const params = new URLSearchParams({ school, program });
+    const url = `/api/edu-stats?${params.toString()}`;
+    console.log("Appel API :", url);
+
+    const res = await fetch(url);
+
+    if (!res.ok) {
+      statusEl.textContent = `Erreur API (${res.status})`;
+      return;
+    }
+
+    const data = await res.json();
+    console.log("Réponse API :", data);
+
+    costEl.textContent =
+      data.cost != null ? `${data.cost} €` : "Non disponible";
+    avgSalaryEl.textContent =
+      data.averageSalary != null ? `${data.averageSalary} €` : "Non disponible";
+    employabilityEl.textContent =
+      data.employabilityRate != null
+        ? `${data.employabilityRate} %`
+        : "Non disponible";
+    sourceEl.textContent = data.source || "Non disponible";
+
+    statusEl.textContent = `Dernière mise à jour : ${
+      data.refreshedAt || "—"
+    }`;
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = "Erreur réseau ou serveur.";
+  }
+});
