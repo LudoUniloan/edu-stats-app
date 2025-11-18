@@ -3,13 +3,14 @@
 import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
+import fetch from "node-fetch";
 
-// ---------- Chargement des sources ----------
+// ---------- Chargement de sources.json ----------
 
 let sourcesConfig = { sources: [] };
 
 try {
-  // sources.json est à la racine du projet (même niveau que /api et /public)
+  // sources.json est à la racine du projet
   const sourcesPath = path.join(process.cwd(), "sources.json");
   const file = fs.readFileSync(sourcesPath, "utf8");
   sourcesConfig = JSON.parse(file);
@@ -21,7 +22,9 @@ try {
 // ---------- Client OpenAI ----------
 
 if (!process.env.OPENAI_API_KEY) {
-  console.error("⚠️ OPENAI_API_KEY n'est pas défini dans les variables d'environnement Vercel.");
+  console.error(
+    "⚠️ OPENAI_API_KEY n'est pas défini dans les variables d'environnement Vercel."
+  );
 }
 
 const client = new OpenAI({
@@ -72,7 +75,9 @@ export default async function handler(req, res) {
     }
 
     const query = `${school} ${program} coût salaire employabilité`;
-    const domains = (sourcesConfig.sources || []).flatMap((src) => src.domains || []);
+    const domains = (sourcesConfig.sources || []).flatMap(
+      (src) => src.domains || []
+    );
 
     const results = await searchSources(query, domains);
 
@@ -83,24 +88,28 @@ export default async function handler(req, res) {
 Voici des extraits trouvés sur des sources fiables :
 ${JSON.stringify(results, null, 2)}
 
-Normalise ces données et renvoie un JSON avec :
+Normalise ces données et renvoie un JSON avec les clés suivantes :
 - cost
 - averageSalary
 - employabilityRate
 - source
+
+Réponds STRICTEMENT avec un objet JSON UNIQUEMENT, sans texte autour.
 `;
 
       try {
         const completion = await client.chat.completions.create({
           model: "gpt-4.1-mini",
+          response_format: { type: "json_object" }, // 🔴 force une réponse JSON
           messages: [{ role: "user", content: prompt }],
         });
 
-        const raw = completion.choices[0].message.content;
+        const raw = completion.choices[0].message.content?.trim() ?? "{}";
         let data;
         try {
           data = JSON.parse(raw);
-        } catch {
+        } catch (e) {
+          console.error("Erreur de parsing JSON (sources) :", e, "contenu :", raw);
           data = {
             cost: null,
             averageSalary: null,
@@ -124,19 +133,30 @@ Donne-moi les statistiques suivantes pour l'école "${school}" et le programme "
 - Coût de la formation (en euros)
 - Salaire moyen à la sortie (en euros)
 - Taux d'employabilité à la sortie (en %)
-Réponds uniquement en JSON avec les clés : cost, averageSalary, employabilityRate, source.
+
+Réponds STRICTEMENT avec un objet JSON au format :
+{
+  "cost": nombre ou null,
+  "averageSalary": nombre ou null,
+  "employabilityRate": nombre ou null,
+  "source": "texte"
+}
+
+Aucun texte en dehors du JSON.
 `;
 
       const completion = await client.chat.completions.create({
         model: "gpt-4.1-mini",
+        response_format: { type: "json_object" }, // 🔴 force une réponse JSON
         messages: [{ role: "user", content: prompt }],
       });
 
-      const raw = completion.choices[0].message.content;
+      const raw = completion.choices[0].message.content?.trim() ?? "{}";
       let data;
       try {
         data = JSON.parse(raw);
-      } catch {
+      } catch (e) {
+        console.error("Erreur de parsing JSON (fallback) :", e, "contenu :", raw);
         data = {
           cost: null,
           averageSalary: null,
@@ -151,7 +171,7 @@ Réponds uniquement en JSON avec les clés : cost, averageSalary, employabilityR
       return res.status(500).json({ error: "Erreur IA fallback" });
     }
   } catch (err) {
-    // Erreur non prévue (ex: crash au milieu du handler)
+    // Erreur non prévue
     console.error("Erreur inattendue dans handler /api/edu-stats :", err);
     return res.status(500).json({ error: "Erreur serveur inattendue" });
   }
