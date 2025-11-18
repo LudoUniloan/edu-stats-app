@@ -118,7 +118,12 @@ Réponds STRICTEMENT avec un objet JSON UNIQUEMENT, sans texte autour.
           };
         }
 
-        return res.json({ ...data, refreshedAt: new Date().toISOString() });
+        return res.json({
+          schoolQueried: school,
+          programQueried: program,
+          ...data,
+          refreshedAt: new Date().toISOString(),
+        });
       } catch (error) {
         console.error("Erreur IA (sources officielles) :", error);
         return res.status(500).json({ error: "Erreur IA" });
@@ -165,7 +170,12 @@ Aucun texte en dehors du JSON.
         };
       }
 
-      return res.json({ ...data, refreshedAt: new Date().toISOString() });
+      return res.json({
+        schoolQueried: school,
+        programQueried: program,
+        ...data,
+        refreshedAt: new Date().toISOString(),
+      });
     } catch (error) {
       console.error("Erreur IA fallback :", error);
       return res.status(500).json({ error: "Erreur IA fallback" });
