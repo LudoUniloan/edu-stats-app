@@ -2,22 +2,34 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Statistiques Formation</title>
+  <title>Statistiques d’insertion et coût des formations</title>
   <link rel="stylesheet" href="style.css" />
+  <script src="script.js" defer></script>
 </head>
 <body>
   <h1>Statistiques d’insertion et coût des formations</h1>
-  <form id="statsForm">
-    <input id="school" type="text" placeholder="Nom de l’école" required />
-    <input id="program" type="text" placeholder="Programme suivi" required />
+
+  <form id="stats-form">
+    <input
+      id="school-input"
+      placeholder="Nom de l'école"
+      value="HEC"
+      required
+    />
+    <input
+      id="program-input"
+      placeholder="Nom du programme"
+      value="Master"
+      required
+    />
     <button type="submit">Obtenir les statistiques</button>
   </form>
-  <div id="results">
-    <p>Coût : <span id="cost">—</span></p>
-    <p>Salaire moyen : <span id="salary">—</span></p>
-    <p>Employabilité : <span id="employability">—</span></p>
-    <p>Source : <span id="source">—</span></p>
-  </div>
-  <script src="script.js"></script>
+
+  <p id="status"></p>
+
+  <p>Coût : <span id="cost">—</span></p>
+  <p>Salaire moyen : <span id="average-salary">—</span></p>
+  <p>Employabilité : <span id="employability-rate">—</span></p>
+  <p>Source : <span id="source">—</span></p>
 </body>
 </html>
