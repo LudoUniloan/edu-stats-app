@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Statistiques Formation</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>Statistiques d’insertion et coût des formations</h1>
+  <form id="statsForm">
+    <input id="school" type="text" placeholder="Nom de l’école" required />
+    <input id="program" type="text" placeholder="Programme suivi" required />
+    <button type="submit">Obtenir les statistiques</button>
+  </form>
+  <div id="results">
+    <p>Coût : <span id="cost">—</span></p>
+    <p>Salaire moyen : <span id="salary">—</span></p>
+    <p>Employabilité : <span id="employability">—</span></p>
+    <p>Source : <span id="source">—</span></p>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
