@@ -42,7 +42,6 @@ form.addEventListener("submit", async (e) => {
     const data = await res.json();
     console.log("Réponse API :", data);
 
-    // 👉 Afficher le couple école + programme utilisé pour les stats
     if (data.schoolQueried && data.programQueried) {
       programInfoEl.textContent = `Statistiques pour : ${data.schoolQueried} – ${data.programQueried}`;
     } else {
