@@ -27,8 +27,7 @@ async function searchSources(query, domains) {
     )}&format=json`;
 
     try {
-      // ⚠️ On utilise le fetch global (Node 18 / Vercel), pas node-fetch
-      const resp = await fetch(url);
+      const resp = await fetch(url); // fetch global (Node 18 / Vercel)
       const data = await resp.json();
 
       if (data?.RelatedTopics?.length > 0) {
@@ -76,32 +75,40 @@ export default async function handler(req, res) {
 
   if (results.length > 0) {
     const prompt = `
-Voici des extraits trouvés sur des sources fiables :
+Voici des extraits trouvés sur des sources fiables pour l'école et le programme suivants :
+
+École : "${school}"
+Programme : "${program}"
+
+Extraits :
 ${JSON.stringify(results, null, 2)}
 
-Normalise ces données et renvoie un JSON STRICT avec les clés obligatoires :
-- cost
-- averageSalary
-- employabilityRate
-- source
+À partir de ces éléments, renvoie un JSON STRICT (pas de texte autour) avec les clés :
 
-Ajoute aussi :
-- schoolQueried: "${school}"
-- programQueried: "${program}"
+{
+  "cost": nombre ou null,                // coût total estimé de la formation en euros
+  "averageSalary": nombre ou null,       // salaire brut annuel moyen à la sortie en euros
+  "employabilityRate": nombre ou null,   // taux d'employabilité en %
+  "source": "texte sur la source (url ou nom)",
+  "schoolQueried": "${school}",
+  "programQueried": "${program}"
+}
 `;
 
     try {
       const completion = await client.chat.completions.create({
         model: "gpt-4.1-mini",
+        response_format: { type: "json_object" },
         messages: [{ role: "user", content: prompt }],
       });
 
       const raw = completion.choices[0].message.content;
-
       let data;
+
       try {
         data = JSON.parse(raw);
       } catch {
+        console.error("Échec du parse JSON (sources trouvées)", raw);
         data = {
           cost: null,
           averageSalary: null,
@@ -127,33 +134,38 @@ Ajoute aussi :
   // ==================
   try {
     const prompt = `
-Donne-moi les statistiques suivantes pour :
+Aucune source fiable n'a été trouvée automatiquement.
+
+Donne une ESTIMATION prudente des statistiques suivantes pour :
 
 École : "${school}"
 Programme : "${program}"
 
-Retourne STRICTEMENT un JSON avec les clés :
-- cost
-- averageSalary
-- employabilityRate
-- source
-- schoolQueried
-- programQueried
+Retourne STRICTEMENT un JSON (sans texte autour) avec les clés :
 
-Pas d'explications, juste un JSON valide.
+{
+  "cost": nombre ou null,
+  "averageSalary": nombre ou null,
+  "employabilityRate": nombre ou null,
+  "source": "texte expliquant qu'il s'agit d'une estimation IA ou d'une source générale",
+  "schoolQueried": "${school}",
+  "programQueried": "${program}"
+}
 `;
 
     const completion = await client.chat.completions.create({
       model: "gpt-4.1-mini",
+      response_format: { type: "json_object" },
       messages: [{ role: "user", content: prompt }],
     });
 
     const raw = completion.choices[0].message.content;
-
     let data;
+
     try {
       data = JSON.parse(raw);
     } catch {
+      console.error("Échec du parse JSON (fallback IA)", raw);
       data = {
         cost: null,
         averageSalary: null,
