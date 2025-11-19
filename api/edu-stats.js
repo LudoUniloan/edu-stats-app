@@ -3,7 +3,7 @@ import fetch from "node-fetch";
 import fs from "fs";
 import path from "path";
 
-// ===== Chargement de sources.json sans "assert" =====
+// ===== Chargement de sources.json sans "assert 2" =====
 const sourcesPath = path.join(process.cwd(), "sources.json");
 
 let sourcesConfig = { sources: [] };
