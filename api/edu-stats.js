@@ -1,9 +1,8 @@
 import OpenAI from "openai";
-import fetch from "node-fetch";
 import fs from "fs";
 import path from "path";
 
-// ===== Chargement de sources.json sans "assert 2" =====
+// ===== Chargement de sources.json sans "assert" =====
 const sourcesPath = path.join(process.cwd(), "sources.json");
 
 let sourcesConfig = { sources: [] };
@@ -28,6 +27,7 @@ async function searchSources(query, domains) {
     )}&format=json`;
 
     try {
+      // ⚠️ On utilise le fetch global (Node 18 / Vercel), pas node-fetch
       const resp = await fetch(url);
       const data = await resp.json();
 
