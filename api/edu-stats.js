@@ -1,23 +1,108 @@
 import OpenAI from "openai";
-import fs from "fs";
-import path from "path";
-
-// ===== Chargement de sources.json sans "assert" =====
-const sourcesPath = path.join(process.cwd(), "sources.json");
-
-let sourcesConfig = { sources: [] };
-try {
-  const raw = fs.readFileSync(sourcesPath, "utf8");
-  sourcesConfig = JSON.parse(raw);
-} catch (e) {
-  console.error("Impossible de charger sources.json :", e);
-}
+import sourcesConfig from "../sources.json" assert { type: "json" };
+import officialSources from "../data/official-sources.json" assert { type: "json" };
+import disciplineMapping from "../data/fr-esr-discipline-mapping.json" assert { type: "json" };
+import fetch from "node-fetch";
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Recherche dans les sources prioritaires
+// ============================
+// 1) MESR / #dataESR (Masters FR)
+// ============================
+
+const MESR_DATASET = "fr-esr-insertion_professionnelle-master_donnees_nationales";
+const MESR_BASE_URL = "https://data.enseignementsup-recherche.gouv.fr/api/records/1.0/search/";
+
+/**
+ * Essaie de deviner une discipline MESR à partir du nom du programme.
+ * Utilise le mapping JSON (keywords -> discipline).
+ */
+function guessMesrDiscipline(program) {
+  const norm = (program || "").toLowerCase();
+  if (!norm) return null;
+
+  for (const entry of disciplineMapping) {
+    if (!entry?.discipline || !Array.isArray(entry.keywords)) continue;
+    const match = entry.keywords.some((kw) =>
+      norm.includes(String(kw || "").toLowerCase())
+    );
+    if (match) {
+      return entry.discipline;
+    }
+  }
+  return null;
+}
+
+/**
+ * Appelle l'API MESR pour récupérer stats nationales d'insertion pro / salaire
+ * par discipline de Master.
+ * Retourne un bloc: { cost, averageSalary, employabilityRate, source }
+ */
+async function fetchMesrMasterStats(disciplineLabel, year = 2020) {
+  if (!disciplineLabel) return null;
+
+  const params = new URLSearchParams({
+    dataset: MESR_DATASET,
+    rows: "1",
+    "refine.annee": String(year),
+    "refine.disciplines": disciplineLabel,
+  });
+
+  const url = `${MESR_BASE_URL}?${params.toString()}`;
+
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      console.error("MESR API error", resp.status, await resp.text());
+      return null;
+    }
+
+    const json = await resp.json();
+    if (!json.records || json.records.length === 0) return null;
+
+    const f = json.records[0].fields || {};
+
+    // Noms de champs potentiels (laisse souple au cas où le schéma évolue)
+    const tauxInsertion =
+      f.taux_dinsertion ||
+      f.taux_d_insertion ||
+      f.taux_demploi ||
+      f.taux_d_emploi ||
+      null;
+
+    const salaireNetMensuel =
+      f.salaire_net_mensuel_median ||
+      f.salaire_net_mensuel ||
+      f.salaire_net_median ||
+      null;
+
+    let averageSalary = null;
+    if (typeof salaireNetMensuel === "number" && Number.isFinite(salaireNetMensuel)) {
+      // Approx net -> brut : x1.3 sur 12 mois (cohérent avec la méthodo publique)
+      averageSalary = Math.round(salaireNetMensuel * 12 * 1.3);
+    }
+
+    return {
+      cost: null, // dataset national : pas les frais de scolarité
+      averageSalary: averageSalary,
+      employabilityRate:
+        typeof tauxInsertion === "number" && Number.isFinite(tauxInsertion)
+          ? Math.round(tauxInsertion)
+          : null,
+      source: `MESR – Enquête insertion professionnelle des diplômés de Master (${year}) – discipline "${disciplineLabel}"`,
+    };
+  } catch (err) {
+    console.error("Erreur fetch MESR", err);
+    return null;
+  }
+}
+
+// ============================
+// 2) Recherche "sites officiels" (DuckDuckGo)
+// ============================
+
 async function searchSources(query, domains) {
   const results = [];
 
@@ -27,13 +112,15 @@ async function searchSources(query, domains) {
     )}&format=json`;
 
     try {
-      const resp = await fetch(url); // fetch global (Node 18 / Vercel)
+      const resp = await fetch(url);
       const data = await resp.json();
 
       if (data?.RelatedTopics?.length > 0) {
+        const topic = data.RelatedTopics[0];
         results.push({
           domain,
-          snippet: data.RelatedTopics[0].Text || "Pas de données précises",
+          url: topic.FirstURL || null,
+          snippet: topic.Text || "Pas de données précises",
         });
       }
     } catch (err) {
@@ -44,54 +131,70 @@ async function searchSources(query, domains) {
   return results;
 }
 
+// ============================
+// 3) Handler principal
+// ============================
+
 export default async function handler(req, res) {
-  // ==================
-  // 🔓 CORS
-  // ==================
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-
-  // ==================
-  // ⚙️ Paramètres
-  // ==================
   const { school, program } = req.query;
 
   if (!school || !program) {
     return res.status(400).json({ error: "Paramètres manquants" });
   }
 
-  const query = `${school} ${program} coût salaire employabilité`;
-  const domains = (sourcesConfig.sources || []).flatMap((src) => src.domains || []);
+  const schoolTrimmed = String(school).trim();
+  const programTrimmed = String(program).trim();
 
-  // ==================
-  // 🔍 Recherche sources officielles
-  // ==================
-  const results = await searchSources(query, domains);
+  const query = `${schoolTrimmed} ${programTrimmed} coût salaire employabilité`;
 
-  if (results.length > 0) {
+  // --- 3.1. Détecter si c'est un Master → tenter MESR d'abord
+  let officialBlock = null;
+  const isMasterLike = /master|m1|m2/i.test(programTrimmed);
+
+  if (isMasterLike) {
+    const mesrDiscipline = guessMesrDiscipline(programTrimmed);
+    if (mesrDiscipline) {
+      officialBlock = await fetchMesrMasterStats(mesrDiscipline);
+    }
+  }
+
+  // --- 3.2. Recherche web sur les domaines "officiels"
+  const domains =
+    (sourcesConfig?.sources || []).flatMap((src) => src.domains || []) ||
+    [];
+
+  const webResults = await searchSources(query, domains);
+
+  // --- 3.3. Si on a au moins un bloc officiel (MESR ou web) → on fusionne avec l'IA
+  if (officialBlock || webResults.length > 0) {
     const prompt = `
-Voici des extraits trouvés sur des sources fiables pour l'école et le programme suivants :
+Tu es un assistant qui fusionne des statistiques officielles et des extraits de sites web.
 
-École : "${school}"
-Programme : "${program}"
+École : "${schoolTrimmed}"
+Programme : "${programTrimmed}"
 
-Extraits :
-${JSON.stringify(results, null, 2)}
+BLOC DE DONNÉES OFFICIELLES (peut être null) :
+${JSON.stringify(officialBlock, null, 2)}
 
-À partir de ces éléments, renvoie un JSON STRICT (pas de texte autour) avec les clés :
+EXTRAITS DE SITES WEB OFFICIELS (domaines écoles, INSEE, etc.) :
+${JSON.stringify(webResults, null, 2)}
+
+RÈGLES :
+- Les chiffres du bloc officiel (par ex. MESR) priment toujours sur les extrapolations.
+- Tu peux utiliser les extraits web pour COMPLÉTER ce qui est null (par ex. le coût quand il est clairement indiqué).
+- N'invente JAMAIS de chiffres : si c'est ambigu ou non présent, laisse la valeur à null.
+- Si les chiffres restent partiellement estimés, mentionne-le explicitement dans "source"
+  (exemple : "MESR + estimation IA pour le coût, faute d'information officielle").
+
+Renvoie STRICTEMENT un JSON avec les clés :
 
 {
-  "cost": nombre ou null,                // coût total estimé de la formation en euros
-  "averageSalary": nombre ou null,       // salaire brut annuel moyen à la sortie en euros
-  "employabilityRate": nombre ou null,   // taux d'employabilité en %
-  "source": "texte sur la source (url ou nom)",
-  "schoolQueried": "${school}",
-  "programQueried": "${program}"
+  "cost": nombre ou null,
+  "averageSalary": nombre ou null,
+  "employabilityRate": nombre ou null,
+  "source": "description courte et honnête des sources utilisées (MESR, site école, estimation IA éventuelle)",
+  "schoolQueried": "${schoolTrimmed}",
+  "programQueried": "${programTrimmed}"
 }
 `;
 
@@ -104,18 +207,19 @@ ${JSON.stringify(results, null, 2)}
 
       const raw = completion.choices[0].message.content;
       let data;
-
       try {
         data = JSON.parse(raw);
       } catch {
-        console.error("Échec du parse JSON (sources trouvées)", raw);
+        console.error("Parse JSON fusion officiel+web KO", raw);
         data = {
-          cost: null,
-          averageSalary: null,
-          employabilityRate: null,
-          source: "Réponse IA non parsée",
-          schoolQueried: school,
-          programQueried: program,
+          cost: officialBlock?.cost ?? null,
+          averageSalary: officialBlock?.averageSalary ?? null,
+          employabilityRate: officialBlock?.employabilityRate ?? null,
+          source:
+            officialBlock?.source ||
+            "Statistiques partiellement officielles, fusion IA non parsée",
+          schoolQueried: schoolTrimmed,
+          programQueried: programTrimmed,
         };
       }
 
@@ -124,32 +228,40 @@ ${JSON.stringify(results, null, 2)}
         refreshedAt: new Date().toISOString(),
       });
     } catch (error) {
-      console.error(error);
-      return res.status(500).json({ error: "Erreur IA" });
+      console.error("Erreur IA fusion sources officielles", error);
+      return res.status(500).json({ error: "Erreur IA fusion sources officielles" });
     }
   }
 
-  // ==================
-  // 🤖 Fallback IA (aucune source trouvée)
-  // ==================
+  // --- 3.4. Fallback : aucune source officielle → estimation IA pure, clairement marquée
+
   try {
     const prompt = `
-Aucune source fiable n'a été trouvée automatiquement.
+Aucune source officielle exploitable n'a été trouvée automatiquement pour :
 
-Donne une ESTIMATION prudente des statistiques suivantes pour :
+École : "${schoolTrimmed}"
+Programme : "${programTrimmed}"
 
-École : "${school}"
-Programme : "${program}"
+Tu dois fournir une ESTIMATION prudente :
 
-Retourne STRICTEMENT un JSON (sans texte autour) avec les clés :
+- Coût total de la formation (en euros)
+- Salaire brut annuel moyen à la sortie (en euros)
+- Taux d'employabilité à la sortie (en %)
+
+RÈGLES :
+- Base-toi sur des ordres de grandeur réalistes (France ou international selon le contexte).
+- N'invente pas de fausse provenance officielle.
+- Indique clairement que c'est une "Estimation IA" dans "source".
+
+Réponds STRICTEMENT en JSON :
 
 {
   "cost": nombre ou null,
   "averageSalary": nombre ou null,
   "employabilityRate": nombre ou null,
-  "source": "texte expliquant qu'il s'agit d'une estimation IA ou d'une source générale",
-  "schoolQueried": "${school}",
-  "programQueried": "${program}"
+  "source": "Estimation IA basée sur des ordres de grandeur de marché",
+  "schoolQueried": "${schoolTrimmed}",
+  "programQueried": "${programTrimmed}"
 }
 `;
 
@@ -161,18 +273,17 @@ Retourne STRICTEMENT un JSON (sans texte autour) avec les clés :
 
     const raw = completion.choices[0].message.content;
     let data;
-
     try {
       data = JSON.parse(raw);
     } catch {
-      console.error("Échec du parse JSON (fallback IA)", raw);
+      console.error("Parse JSON fallback IA KO", raw);
       data = {
         cost: null,
         averageSalary: null,
         employabilityRate: null,
-        source: "Réponse IA non parsée",
-        schoolQueried: school,
-        programQueried: program,
+        source: "Estimation IA (JSON non parsé)",
+        schoolQueried: schoolTrimmed,
+        programQueried: programTrimmed,
       };
     }
 
@@ -181,7 +292,7 @@ Retourne STRICTEMENT un JSON (sans texte autour) avec les clés :
       refreshedAt: new Date().toISOString(),
     });
   } catch (error) {
-    console.error(error);
+    console.error("Erreur IA fallback", error);
     return res.status(500).json({ error: "Erreur IA fallback" });
   }
 }
