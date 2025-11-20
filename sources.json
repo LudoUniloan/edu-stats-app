@@ -1,8 +1,34 @@
 {
   "sources": [
-    { "name": "HEC Paris", "domains": ["hec.edu"], "description": "Site officiel de HEC Paris" },
-    { "name": "École Polytechnique", "domains": ["polytechnique.edu"], "description": "Site officiel de l'École Polytechnique" },
-    { "name": "Ministère de l'Enseignement Supérieur", "domains": ["enseignementsup-recherche.gouv.fr"], "description": "Rapports d'insertion professionnelle" },
-    { "name": "INSEE", "domains": ["insee.fr"], "description": "Statistiques emploi et salaires en France" }
+    {
+      "id": "hec",
+      "label": "HEC Paris",
+      "domains": ["hec.edu"]
+    },
+    {
+      "id": "polytechnique",
+      "label": "École polytechnique",
+      "domains": ["polytechnique.edu"]
+    },
+    {
+      "id": "ensae",
+      "label": "ENSAE Paris",
+      "domains": ["ensae.fr", "ensae-paris.fr"]
+    },
+    {
+      "id": "ensai",
+      "label": "ENSAI",
+      "domains": ["ensai.fr"]
+    },
+    {
+      "id": "insee",
+      "label": "INSEE",
+      "domains": ["insee.fr"]
+    },
+    {
+      "id": "mesr",
+      "label": "Ministère de l'Enseignement supérieur et de la Recherche",
+      "domains": ["enseignementsup-recherche.gouv.fr", "data.enseignementsup-recherche.gouv.fr"]
+    }
   ]
 }
