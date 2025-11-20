@@ -1,8 +1,38 @@
 import OpenAI from "openai";
-import sourcesConfig from "../sources.json" assert { type: "json" };
-import officialSources from "../data/official-sources.json" assert { type: "json" };
-import disciplineMapping from "../data/fr-esr-discipline-mapping.json" assert { type: "json" };
 import fetch from "node-fetch";
+import fs from "fs";
+import path from "path";
+
+// ============================
+// Chargement des JSON sans "assert"
+// ============================
+
+function loadJson(relativePath, fallback) {
+  try {
+    const filePath = path.join(process.cwd(), relativePath);
+    const raw = fs.readFileSync(filePath, "utf8");
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error("Impossible de charger", relativePath, ":", e.message);
+    return fallback;
+  }
+}
+
+// sources.json à la racine du projet
+const sourcesConfig = loadJson("sources.json", { sources: [] });
+
+// data/official-sources.json (catalogue de sources)
+const officialSources = loadJson("data/official-sources.json", {
+  websites: [],
+  apis: [],
+});
+
+// data/fr-esr-discipline-mapping.json (mapping programme -> discipline MESR)
+const disciplineMapping = loadJson("data/fr-esr-discipline-mapping.json", []);
+
+// ============================
+// Client OpenAI
+// ============================
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -12,8 +42,10 @@ const client = new OpenAI({
 // 1) MESR / #dataESR (Masters FR)
 // ============================
 
-const MESR_DATASET = "fr-esr-insertion_professionnelle-master_donnees_nationales";
-const MESR_BASE_URL = "https://data.enseignementsup-recherche.gouv.fr/api/records/1.0/search/";
+const MESR_DATASET =
+  "fr-esr-insertion_professionnelle-master_donnees_nationales";
+const MESR_BASE_URL =
+  "https://data.enseignementsup-recherche.gouv.fr/api/records/1.0/search/";
 
 /**
  * Essaie de deviner une discipline MESR à partir du nom du programme.
@@ -28,9 +60,7 @@ function guessMesrDiscipline(program) {
     const match = entry.keywords.some((kw) =>
       norm.includes(String(kw || "").toLowerCase())
     );
-    if (match) {
-      return entry.discipline;
-    }
+    if (match) return entry.discipline;
   }
   return null;
 }
@@ -64,7 +94,6 @@ async function fetchMesrMasterStats(disciplineLabel, year = 2020) {
 
     const f = json.records[0].fields || {};
 
-    // Noms de champs potentiels (laisse souple au cas où le schéma évolue)
     const tauxInsertion =
       f.taux_dinsertion ||
       f.taux_d_insertion ||
@@ -79,14 +108,17 @@ async function fetchMesrMasterStats(disciplineLabel, year = 2020) {
       null;
 
     let averageSalary = null;
-    if (typeof salaireNetMensuel === "number" && Number.isFinite(salaireNetMensuel)) {
-      // Approx net -> brut : x1.3 sur 12 mois (cohérent avec la méthodo publique)
+    if (
+      typeof salaireNetMensuel === "number" &&
+      Number.isFinite(salaireNetMensuel)
+    ) {
+      // Approx net -> brut : x1.3 sur 12 mois
       averageSalary = Math.round(salaireNetMensuel * 12 * 1.3);
     }
 
     return {
       cost: null, // dataset national : pas les frais de scolarité
-      averageSalary: averageSalary,
+      averageSalary,
       employabilityRate:
         typeof tauxInsertion === "number" && Number.isFinite(tauxInsertion)
           ? Math.round(tauxInsertion)
@@ -160,8 +192,7 @@ export default async function handler(req, res) {
 
   // --- 3.2. Recherche web sur les domaines "officiels"
   const domains =
-    (sourcesConfig?.sources || []).flatMap((src) => src.domains || []) ||
-    [];
+    (sourcesConfig?.sources || []).flatMap((src) => src.domains || []) || [];
 
   const webResults = await searchSources(query, domains);
 
@@ -229,11 +260,13 @@ Renvoie STRICTEMENT un JSON avec les clés :
       });
     } catch (error) {
       console.error("Erreur IA fusion sources officielles", error);
-      return res.status(500).json({ error: "Erreur IA fusion sources officielles" });
+      return res
+        .status(500)
+        .json({ error: "Erreur IA fusion sources officielles" });
     }
   }
 
-  // --- 3.4. Fallback : aucune source officielle → estimation IA pure, clairement marquée
+  // --- 3.4. Fallback : aucune source officielle → estimation IA pure
 
   try {
     const prompt = `
@@ -249,7 +282,7 @@ Tu dois fournir une ESTIMATION prudente :
 - Taux d'employabilité à la sortie (en %)
 
 RÈGLES :
-- Base-toi sur des ordres de grandeur réalistes (France ou international selon le contexte).
+- Base-toi sur des ordres de grandeur réalistes.
 - N'invente pas de fausse provenance officielle.
 - Indique clairement que c'est une "Estimation IA" dans "source".
 
