@@ -1,0 +1,30 @@
+[
+  {
+    "discipline": "Ensemble Masters LMD (hors Masters enseignement)",
+    "keywords": ["master", "m1", "m2"]
+  },
+  {
+    "discipline": "Droit, économie, gestion",
+    "keywords": ["droit", "business law", "juriste"]
+  },
+  {
+    "discipline": "Economie",
+    "keywords": ["économie", "economics", "économétrie"]
+  },
+  {
+    "discipline": "Gestion, management",
+    "keywords": ["management", "gestion", "mba", "strategie", "strategy"]
+  },
+  {
+    "discipline": "Banque, finance, assurance",
+    "keywords": ["finance", "financial", "marchés financiers", "asset management", "corporate finance"]
+  },
+  {
+    "discipline": "Marketing, vente",
+    "keywords": ["marketing", "brand", "vente", "commercial", "business development"]
+  },
+  {
+    "discipline": "Sciences, technologies, santé",
+    "keywords": ["data science", "informatique", "computer science", "ingénierie", "engineering"]
+  }
+]
