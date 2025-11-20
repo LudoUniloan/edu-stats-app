@@ -1,38 +1,8 @@
 import OpenAI from "openai";
+import sourcesConfig from "../sources.json" assert { type: "json" };
+import officialSources from "../data/official-sources.json" assert { type: "json" };
+import disciplineMapping from "../data/fr-esr-discipline-mapping.json" assert { type: "json" };
 import fetch from "node-fetch";
-import fs from "fs";
-import path from "path";
-
-// ============================
-// Chargement des JSON sans "assert"
-// ============================
-
-function loadJson(relativePath, fallback) {
-  try {
-    const filePath = path.join(process.cwd(), relativePath);
-    const raw = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error("Impossible de charger", relativePath, ":", e.message);
-    return fallback;
-  }
-}
-
-// sources.json à la racine du projet
-const sourcesConfig = loadJson("sources.json", { sources: [] });
-
-// data/official-sources.json (catalogue de sources)
-const officialSources = loadJson("data/official-sources.json", {
-  websites: [],
-  apis: [],
-});
-
-// data/fr-esr-discipline-mapping.json (mapping programme -> discipline MESR)
-const disciplineMapping = loadJson("data/fr-esr-discipline-mapping.json", []);
-
-// ============================
-// Client OpenAI
-// ============================
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -55,13 +25,19 @@ function guessMesrDiscipline(program) {
   const norm = (program || "").toLowerCase();
   if (!norm) return null;
 
-  for (const entry of disciplineMapping) {
+  for (const entry of disciplineMapping || []) {
     if (!entry?.discipline || !Array.isArray(entry.keywords)) continue;
     const match = entry.keywords.some((kw) =>
       norm.includes(String(kw || "").toLowerCase())
     );
     if (match) return entry.discipline;
   }
+
+  // fallback très large si on voit juste "master"
+  if (/master|m1|m2/.test(norm)) {
+    return "Ensemble Masters LMD (hors Masters enseignement)";
+  }
+
   return null;
 }
 
@@ -168,37 +144,38 @@ async function searchSources(query, domains) {
 // ============================
 
 export default async function handler(req, res) {
-  const { school, program } = req.query;
+  try {
+    const { school, program } = req.query;
 
-  if (!school || !program) {
-    return res.status(400).json({ error: "Paramètres manquants" });
-  }
-
-  const schoolTrimmed = String(school).trim();
-  const programTrimmed = String(program).trim();
-
-  const query = `${schoolTrimmed} ${programTrimmed} coût salaire employabilité`;
-
-  // --- 3.1. Détecter si c'est un Master → tenter MESR d'abord
-  let officialBlock = null;
-  const isMasterLike = /master|m1|m2/i.test(programTrimmed);
-
-  if (isMasterLike) {
-    const mesrDiscipline = guessMesrDiscipline(programTrimmed);
-    if (mesrDiscipline) {
-      officialBlock = await fetchMesrMasterStats(mesrDiscipline);
+    if (!school || !program) {
+      return res.status(400).json({ error: "Paramètres manquants" });
     }
-  }
 
-  // --- 3.2. Recherche web sur les domaines "officiels"
-  const domains =
-    (sourcesConfig?.sources || []).flatMap((src) => src.domains || []) || [];
+    const schoolTrimmed = String(school).trim();
+    const programTrimmed = String(program).trim();
 
-  const webResults = await searchSources(query, domains);
+    const query = `${schoolTrimmed} ${programTrimmed} coût salaire employabilité`;
 
-  // --- 3.3. Si on a au moins un bloc officiel (MESR ou web) → on fusionne avec l'IA
-  if (officialBlock || webResults.length > 0) {
-    const prompt = `
+    // --- 3.1. MESR prioritaire si Master
+    let officialBlock = null;
+    const isMasterLike = /master|m1|m2/i.test(programTrimmed);
+
+    if (isMasterLike) {
+      const mesrDiscipline = guessMesrDiscipline(programTrimmed);
+      if (mesrDiscipline) {
+        officialBlock = await fetchMesrMasterStats(mesrDiscipline);
+      }
+    }
+
+    // --- 3.2. Recherche web sur les domaines "officiels"
+    const domains =
+      (sourcesConfig?.sources || []).flatMap((src) => src.domains || []) || [];
+
+    const webResults = await searchSources(query, domains);
+
+    // --- 3.3. Si on a au moins un bloc officiel (MESR ou web) → fusion via IA
+    if (officialBlock || webResults.length > 0) {
+      const prompt = `
 Tu es un assistant qui fusionne des statistiques officielles et des extraits de sites web.
 
 École : "${schoolTrimmed}"
@@ -229,7 +206,6 @@ Renvoie STRICTEMENT un JSON avec les clés :
 }
 `;
 
-    try {
       const completion = await client.chat.completions.create({
         model: "gpt-4.1-mini",
         response_format: { type: "json_object" },
@@ -240,7 +216,7 @@ Renvoie STRICTEMENT un JSON avec les clés :
       let data;
       try {
         data = JSON.parse(raw);
-      } catch {
+      } catch (e) {
         console.error("Parse JSON fusion officiel+web KO", raw);
         data = {
           cost: officialBlock?.cost ?? null,
@@ -258,18 +234,11 @@ Renvoie STRICTEMENT un JSON avec les clés :
         ...data,
         refreshedAt: new Date().toISOString(),
       });
-    } catch (error) {
-      console.error("Erreur IA fusion sources officielles", error);
-      return res
-        .status(500)
-        .json({ error: "Erreur IA fusion sources officielles" });
     }
-  }
 
-  // --- 3.4. Fallback : aucune source officielle → estimation IA pure
+    // --- 3.4. Fallback : aucune source officielle → estimation IA pure
 
-  try {
-    const prompt = `
+    const fallbackPrompt = `
 Aucune source officielle exploitable n'a été trouvée automatiquement pour :
 
 École : "${schoolTrimmed}"
@@ -298,19 +267,19 @@ Réponds STRICTEMENT en JSON :
 }
 `;
 
-    const completion = await client.chat.completions.create({
+    const fallbackCompletion = await client.chat.completions.create({
       model: "gpt-4.1-mini",
       response_format: { type: "json_object" },
-      messages: [{ role: "user", content: prompt }],
+      messages: [{ role: "user", content: fallbackPrompt }],
     });
 
-    const raw = completion.choices[0].message.content;
-    let data;
+    const rawFallback = fallbackCompletion.choices[0].message.content;
+    let fallbackData;
     try {
-      data = JSON.parse(raw);
-    } catch {
-      console.error("Parse JSON fallback IA KO", raw);
-      data = {
+      fallbackData = JSON.parse(rawFallback);
+    } catch (e) {
+      console.error("Parse JSON fallback IA KO", rawFallback);
+      fallbackData = {
         cost: null,
         averageSalary: null,
         employabilityRate: null,
@@ -321,11 +290,11 @@ Réponds STRICTEMENT en JSON :
     }
 
     return res.json({
-      ...data,
+      ...fallbackData,
       refreshedAt: new Date().toISOString(),
     });
-  } catch (error) {
-    console.error("Erreur IA fallback", error);
-    return res.status(500).json({ error: "Erreur IA fallback" });
+  } catch (err) {
+    console.error("Erreur serveur /api/edu-stats :", err);
+    return res.status(500).json({ error: "Erreur serveur edu-stats" });
   }
 }
