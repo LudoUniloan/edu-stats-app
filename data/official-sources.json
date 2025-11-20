@@ -1,0 +1,52 @@
+{
+  "websites": [
+    {
+      "id": "hec",
+      "label": "HEC Paris",
+      "domains": ["hec.edu"],
+      "type": "school",
+      "country": "FR"
+    },
+    {
+      "id": "polytechnique",
+      "label": "École polytechnique",
+      "domains": ["polytechnique.edu"],
+      "type": "school",
+      "country": "FR"
+    },
+    {
+      "id": "insee",
+      "label": "INSEE",
+      "domains": ["insee.fr"],
+      "type": "stats",
+      "country": "FR"
+    },
+    {
+      "id": "mesr",
+      "label": "Ministère de l'Enseignement supérieur et de la Recherche",
+      "domains": [
+        "enseignementsup-recherche.gouv.fr",
+        "data.enseignementsup-recherche.gouv.fr"
+      ],
+      "type": "ministry",
+      "country": "FR"
+    }
+  ],
+  "apis": [
+    {
+      "id": "mesr_master_insertion",
+      "label": "Insertion professionnelle des diplômés de Master (données nationales)",
+      "type": "open-data",
+      "country": "FR",
+      "level": "master",
+      "provider": "MESR / #dataESR",
+      "dataset": "fr-esr-insertion_professionnelle-master_donnees_nationales",
+      "baseUrl": "https://data.enseignementsup-recherche.gouv.fr/api/records/1.0/search/",
+      "docUrl": "https://data.enseignementsup-recherche.gouv.fr/explore/dataset/fr-esr-insertion_professionnelle-master_donnees_nationales/api/",
+      "defaultParams": {
+        "rows": 5,
+        "refine.annee": "2020"
+      }
+    }
+  ]
+}
