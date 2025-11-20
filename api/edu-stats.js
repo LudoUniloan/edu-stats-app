@@ -21,11 +21,26 @@ try {
 }
 
 // ============================
+// Helper fetch compatible Node <18 et Node 18+
+// ============================
+
+async function ensureFetch() {
+  if (typeof fetch !== "undefined") {
+    // Node 18+ ou runtime avec fetch global
+    return fetch;
+  }
+  // Node plus ancien : on charge node-fetch dynamiquement
+  const mod = await import("node-fetch");
+  return mod.default || mod;
+}
+
+// ============================
 // Recherche sur les domaines prioritaires
 // ============================
 
 async function searchSources(query, domains) {
   const results = [];
+  const f = await ensureFetch();
 
   for (const domain of domains) {
     const url = `https://api.duckduckgo.com/?q=site:${domain}+${encodeURIComponent(
@@ -33,8 +48,7 @@ async function searchSources(query, domains) {
     )}&format=json`;
 
     try {
-      // ⚠️ ici on utilise le fetch global fourni par Node / Vercel
-      const resp = await fetch(url);
+      const resp = await f(url);
       const data = await resp.json();
 
       if (data?.RelatedTopics?.length > 0) {
