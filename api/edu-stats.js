@@ -1,70 +1,29 @@
 import OpenAI from "openai";
-import sourcesConfig from "../sources.json" with { type: "json" };
-import officialSources from "../data/official-sources.json" with { type: "json" };
-import disciplineMapping from "../data/fr-esr-discipline-mapping.json" with { type: "json" };
 import fetch from "node-fetch";
+import fs from "fs";
+import path from "path";
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const MESR_DATASET =
-  "fr-esr-insertion_professionnelle-master_donnees_nationales";
-const MESR_BASE_URL =
-  "https://data.enseignementsup-recherche.gouv.fr/api/records/1.0/search/";
+// ============================
+// Chargement de sources.json SANS assert / with
+// ============================
 
-function guessMesrDiscipline(program) {
-  const norm = (program || "").toLowerCase();
+let sourcesConfig = { sources: [] };
 
-  for (const entry of disciplineMapping || []) {
-    if (!entry.discipline || !entry.keywords) continue;
-    if (entry.keywords.some((kw) => norm.includes(String(kw).toLowerCase()))) {
-      return entry.discipline;
-    }
-  }
-
-  if (/master|m1|m2/.test(norm)) {
-    return "Ensemble Masters LMD (hors Masters enseignement)";
-  }
-
-  return null;
+try {
+  const sourcesPath = path.join(process.cwd(), "sources.json");
+  const raw = fs.readFileSync(sourcesPath, "utf8");
+  sourcesConfig = JSON.parse(raw);
+} catch (e) {
+  console.error("Impossible de charger sources.json :", e.message);
 }
 
-async function fetchMesrMasterStats(disciplineLabel, year = 2020) {
-  if (!disciplineLabel) return null;
-
-  const params = new URLSearchParams({
-    dataset: MESR_DATASET,
-    rows: "1",
-    "refine.annee": String(year),
-    "refine.disciplines": disciplineLabel,
-  });
-
-  const url = `${MESR_BASE_URL}?${params.toString()}`;
-
-  try {
-    const resp = await fetch(url);
-    if (!resp.ok) return null;
-
-    const json = await resp.json();
-    if (!json.records?.length) return null;
-
-    const f = json.records[0].fields;
-
-    const taux = f.taux_dinsertion || f.taux_d_insertion || null;
-    const net = f.salaire_net_mensuel_median || null;
-
-    return {
-      cost: null,
-      averageSalary: net ? Math.round(net * 12 * 1.3) : null,
-      employabilityRate: taux ? Math.round(taux) : null,
-      source: `MESR – discipline "${disciplineLabel}" (${year})`,
-    };
-  } catch (e) {
-    console.error("MESR fetch error", e);
-    return null;
-  }
-}
+// ============================
+// Recherche sur les domaines prioritaires
+// ============================
 
 async function searchSources(query, domains) {
   const results = [];
@@ -73,73 +32,65 @@ async function searchSources(query, domains) {
     const url = `https://api.duckduckgo.com/?q=site:${domain}+${encodeURIComponent(
       query
     )}&format=json`;
-
     try {
       const resp = await fetch(url);
       const data = await resp.json();
-
       if (data?.RelatedTopics?.length > 0) {
-        const t = data.RelatedTopics[0];
         results.push({
           domain,
-          url: t.FirstURL || null,
-          snippet: t.Text || "",
+          snippet: data.RelatedTopics[0].Text || "Pas de données précises",
+          url: data.RelatedTopics[0].FirstURL || null,
         });
       }
     } catch (err) {
-      console.error("DuckDuckGo error", err);
+      console.error(`Erreur recherche sur ${domain}:`, err.message);
     }
   }
   return results;
 }
 
+// ============================
+// Handler principal
+// ============================
+
 export default async function handler(req, res) {
   try {
     const { school, program } = req.query;
 
-    if (!school || !program)
+    if (!school || !program) {
       return res.status(400).json({ error: "Paramètres manquants" });
-
-    const schoolTrimmed = school.trim();
-    const programTrimmed = program.trim();
-    const query = `${schoolTrimmed} ${programTrimmed} coût salaire employabilité`;
-
-    // 1) MESR si Master
-    let officialBlock = null;
-    if (/master|m1|m2/i.test(programTrimmed)) {
-      const disc = guessMesrDiscipline(programTrimmed);
-      if (disc) officialBlock = await fetchMesrMasterStats(disc);
     }
 
-    // 2) Sites officiels
-    const domains = sourcesConfig.sources.flatMap((s) => s.domains || []);
-    const webResults = await searchSources(query, domains);
+    const schoolTrimmed = String(school).trim();
+    const programTrimmed = String(program).trim();
 
-    // 3) Fusion AI si au moins une source
-    if (officialBlock || webResults.length > 0) {
+    const query = `${schoolTrimmed} ${programTrimmed} coût salaire employabilité`;
+    const domains =
+      (sourcesConfig.sources || []).flatMap((src) => src.domains || []) || [];
+
+    const results = await searchSources(query, domains);
+
+    // 1) Si on a trouvé quelque chose sur les sources prioritaires → on demande à l'IA de normaliser
+    if (results.length > 0) {
       const prompt = `
-Voici des données pour fusionner :
+Voici des extraits trouvés sur des sources considérées comme fiables (sites officiels d'écoles, INSEE, etc.) :
 
-OFFICIEL :
-${JSON.stringify(officialBlock, null, 2)}
+${JSON.stringify(results, null, 2)}
 
-WEB :
-${JSON.stringify(webResults, null, 2)}
+École : "${schoolTrimmed}"
+Programme : "${programTrimmed}"
 
-RÈGLES :
-- Si officiel existe, il est prioritaire.
-- Ne pas inventer de chiffres. Null si inconnu.
-- Indiquer clairement dans "source" ce qui provient du MESR, du web ou estimé.
-- FORMAT STRICT JSON :
+Normalise ces données et renvoie STRICTEMENT un JSON avec les clés suivantes :
 
 {
-  "cost": ...,
-  "averageSalary": ...,
-  "employabilityRate": ...,
-  "source": "...",
+  "cost": nombre ou null,
+  "averageSalary": nombre ou null,
+  "employabilityRate": nombre ou null,
+  "source": "description courte de la ou des sources utilisées (par ex. Site officiel HEC Paris 2023)",
   "schoolQueried": "${schoolTrimmed}",
   "programQueried": "${programTrimmed}"
-}`;
+}
+`;
 
       const completion = await client.chat.completions.create({
         model: "gpt-4.1-mini",
@@ -148,63 +99,74 @@ RÈGLES :
       });
 
       let data;
+      const raw = completion.choices[0].message.content;
       try {
-        data = JSON.parse(completion.choices[0].message.content);
-      } catch {
+        data = JSON.parse(raw);
+      } catch (e) {
+        console.error("Parse JSON (sources officielles) KO :", raw);
         data = {
-          cost: officialBlock?.cost || null,
-          averageSalary: officialBlock?.averageSalary || null,
-          employabilityRate: officialBlock?.employabilityRate || null,
-          source:
-            officialBlock?.source ||
-            "Fusion IA (réponse non parsée), données officielles partielles",
+          cost: null,
+          averageSalary: null,
+          employabilityRate: null,
+          source: "Réponse IA non parsée (sources officielles)",
           schoolQueried: schoolTrimmed,
           programQueried: programTrimmed,
         };
       }
 
-      return res.json({ ...data, refreshedAt: new Date().toISOString() });
+      return res.json({
+        ...data,
+        refreshedAt: new Date().toISOString(),
+      });
     }
 
-    // 4) Fallback IA
+    // 2) Fallback : estimation IA quand aucune source officielle exploitable
     const fallbackPrompt = `
-Aucune source officielle trouvée pour :
-${schoolTrimmed} – ${programTrimmed}
+Aucune source officielle exploitable n'a été trouvée automatiquement pour :
 
-Donne une estimation prudente, en JSON strict :
+École : "${schoolTrimmed}"
+Programme : "${programTrimmed}"
+
+Donne une ESTIMATION prudente des ordres de grandeur suivants, et rien d'autre, sous forme de JSON strict :
 
 {
-  "cost": ...,
-  "averageSalary": ...,
-  "employabilityRate": ...,
-  "source": "Estimation IA",
+  "cost": nombre ou null,
+  "averageSalary": nombre ou null,
+  "employabilityRate": nombre ou null,
+  "source": "Estimation IA basée sur des ordres de grandeur du marché",
   "schoolQueried": "${schoolTrimmed}",
   "programQueried": "${programTrimmed}"
-}`;
+}
+`;
 
-    const fallback = await client.chat.completions.create({
+    const fallbackCompletion = await client.chat.completions.create({
       model: "gpt-4.1-mini",
       response_format: { type: "json_object" },
       messages: [{ role: "user", content: fallbackPrompt }],
     });
 
     let fallbackData;
+    const fallbackRaw = fallbackCompletion.choices[0].message.content;
     try {
-      fallbackData = JSON.parse(fallback.choices[0].message.content);
-    } catch {
+      fallbackData = JSON.parse(fallbackRaw);
+    } catch (e) {
+      console.error("Parse JSON fallback IA KO :", fallbackRaw);
       fallbackData = {
         cost: null,
         averageSalary: null,
         employabilityRate: null,
-        source: "Estimation IA (non parsée)",
+        source: "Estimation IA (JSON non parsé)",
         schoolQueried: schoolTrimmed,
         programQueried: programTrimmed,
       };
     }
 
-    return res.json({ ...fallbackData, refreshedAt: new Date().toISOString() });
+    return res.json({
+      ...fallbackData,
+      refreshedAt: new Date().toISOString(),
+    });
   } catch (err) {
-    console.error("Erreur API edu-stats", err);
+    console.error("Erreur serveur /api/edu-stats :", err);
     return res.status(500).json({ error: "Erreur serveur edu-stats" });
   }
 }
